@@ -49,65 +49,28 @@ ROLE_REQUIREMENTS = {
     """
 }
 
-import requests
-from datetime import datetime, timedelta
-
-# OAuth Access Token (replace with your token)
-ZOOM_OAUTH_ACCESS_TOKEN = "your_oauth_access_token"
-
-def generate_zoom_link():
-    """Generate Zoom meeting link using OAuth token."""
-    url = "https://api.zoom.us/v2/users/me/meetings"
-    headers = {
-        "Authorization": f"Bearer {ZOOM_OAUTH_ACCESS_TOKEN}",
-        "Content-Type": "application/json"
-    }
+def match_skills_to_role(resume_text, role):
+    """Match candidate's skills to role requirements and calculate match score."""
+    required_skills = ROLE_REQUIREMENTS[role]["skills"]
+    experience_keywords = ROLE_REQUIREMENTS[role]["experience_keywords"]
     
-    # Define meeting details (you can customize this as needed)
-    data = {
-        "topic": "Interview",
-        "type": 2,  # Scheduled meeting
-        "start_time": (datetime.now() + timedelta(days=3)).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "duration": 45,
-        "timezone": "UTC",
-        "agenda": "Interview for the role"
-    }
+    # Convert resume text to lowercase
+    resume_text = resume_text.lower()
     
-    # Send POST request to Zoom API
-    response = requests.post(url, json=data, headers=headers)
+    # Count skill matches in resume text
+    skill_matches = sum(1 for skill in required_skills if skill.lower() in resume_text)
     
-    if response.status_code == 201:  # Meeting created successfully
-        meeting_info = response.json()
-        meeting_url = meeting_info.get("join_url")
-        return meeting_url
-    else:
-        # Log the error for debugging
-        error_message = response.json().get("message", "Unknown error")
-        return f"Error creating Zoom meeting: {error_message}"
+    # Count experience-related matches (projects, experience, etc.)
+    experience_matches = sum(1 for keyword in experience_keywords if keyword.lower() in resume_text)
 
-# Test the function
-zoom_link = generate_zoom_link()
-if "Error" in zoom_link:
-    print(zoom_link)
-else:
-    print(f"Zoom meeting link: {zoom_link}")
+    # Calculate match score as a weighted average (skills match + experience match)
+    skill_score = skill_matches / len(required_skills)
+    experience_score = experience_matches / len(experience_keywords)
 
-# Helper Functions
-def extract_text_from_pdf(pdf_file) -> str:
-    """Extract text from a PDF file."""
-    pdf_reader = PyPDF2.PdfReader(pdf_file)
-    return "".join([page.extract_text() for page in pdf_reader.pages])
+    # Total match score (out of 1)
+    total_score = (skill_score * 0.7) + (experience_score * 0.3)  # 70% weight on skills, 30% on experience
 
-def pdf_to_png(pdf_file):
-    """Convert PDF pages to PNG images for display."""
-    pdf_file.seek(0)
-    pdf_bytes = pdf_file.read()
-    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
-    for i in range(doc.page_count):
-        page = doc.load_page(i)
-        pix = page.get_pixmap()
-        img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
-        st.image(img, caption=f"Page {i+1}", use_container_width=True)
+    return total_score
 
 def analyze_resume(resume_text: str, role: str) -> tuple[bool, str]:
     """Analyze resume and match with role requirements."""
@@ -144,9 +107,7 @@ def send_email(sender_email, sender_password, receiver_email, subject, body):
             server.sendmail(sender_email, receiver_email, msg.as_string())
             return "Email sent successfully!"
     except Exception as e:
-        # Log the error for debugging
         return f"Failed to send email: {str(e)}"
-
 
 
 
@@ -250,10 +211,33 @@ def configure_sidebar():
 config = configure_sidebar()
 
 
+def extract_text_from_pdf(pdf_file) -> str:
+    """Extract text from a PDF file."""
+    pdf_reader = PyPDF2.PdfReader(pdf_file)
+    return "".join([page.extract_text() for page in pdf_reader.pages])
+
+def pdf_to_png(pdf_file):
+    """Convert PDF pages to PNG images for display."""
+    pdf_file.seek(0)
+    pdf_bytes = pdf_file.read()
+    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    for i in range(doc.page_count):
+        page = doc.load_page(i)
+        pix = page.get_pixmap()
+        img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+        st.image(img, caption=f"Page {i+1}", use_container_width=True)
+
 def download_button_with_icon(pdf_file):
     """Display a download button for the resume with an icon."""
+    # Reset the file pointer to the beginning
+    pdf_file.seek(0)
+    
+    # Read the PDF bytes
     pdf_bytes = pdf_file.read()
+    
+    # Encode the PDF bytes to Base64
     encoded_pdf = base64.b64encode(pdf_bytes).decode('utf-8')
+    
     col1, col2 = st.columns([3, 1])
 
     with col1:
@@ -266,12 +250,20 @@ def download_button_with_icon(pdf_file):
             f'<button style="font-size: 16px;">&#8595; Download Resume</button></a>',
             unsafe_allow_html=True
         )
+    
+    # Instructions for the user
+    st.markdown("### Instructions:")
+    st.write("After downloading, please open the 'resume.pdf' file to review your resume.")
+    
+    # Instructions for the user
+    st.markdown("### Instructions:")
+    st.write("After downloading, please open the 'resume.pdf' file to review your resume.")
 
 def initialize_metrics():
     if 'metrics' not in st.session_state:
         st.session_state.metrics = {
             'total_resumes_uploaded': 0,
-            'selected_candidates': 0,
+             'selected_candidates': 0,
             'interviews_scheduled': 0,
             'applications_by_role': {role: 0 for role in ROLE_REQUIREMENTS}
         }
@@ -285,14 +277,24 @@ def update_metrics(role, is_selected):
 
 def show_analytics():
     st.header("Recruitment Analytics Dashboard")
+    
+    # Fetch metrics from session state
     metrics = st.session_state.metrics
+    
+    # Display key metrics
     st.metric(label="Total Resumes Uploaded", value=metrics['total_resumes_uploaded'])
     st.metric(label="Total Selected Candidates", value=metrics['selected_candidates'])
     st.metric(label="Total Interviews Scheduled", value=metrics['interviews_scheduled'])
+    
+    # Display role-wise applications
     role_counts = pd.DataFrame({
         'Role': list(metrics['applications_by_role'].keys()),
         'Applications': list(metrics['applications_by_role'].values())
     })
+    
+    st.subheader("Applications by Role")
+    st.dataframe(role_counts)  # Display the role_counts DataFrame as a table
+
     st.subheader("Applications by Role")
     fig = px.bar(role_counts, x='Role', y='Applications', title='Applications per Role')
     st.plotly_chart(fig)
@@ -347,9 +349,6 @@ def generate_assessment_url(role):
         return "https://docs.google.com/forms/d/e/1FAIpQLScIMEtmyc6HquDLB7ir0VQWEFOhY5qwf9snYiUoBJwG1x7D_w/viewform?usp=dialog"
     else:
         return "https://coding-assessment-platform.com"
-
-
-
 def main():
     st.title("AI Recruitment System")
     st.markdown("Please configure the following in the sidebar: Email Sender, Email Password, Company Name")
@@ -435,7 +434,7 @@ def main():
             st.subheader(f"Coding Assessment for {role.replace('_', ' ').title()}")
             st.markdown(f"[Start Coding Assessment]({assessment_url})")
             st.write("This link will take you to the coding assessment platform with 10 questions based on the selected role.")
-
+    
     resume_file = st.file_uploader("Upload Resume", type=["pdf"])
     if resume_file:
         resume_text = extract_text_from_pdf(resume_file)
@@ -490,8 +489,8 @@ def main():
 
                     if is_selected:
                         interview_date = datetime.now() + timedelta(days=3)  # Interview in 3 days
-                        meeting_id = "634 285 2168"  # Replace with actual meeting ID
-                        password = "abcdefgh"  # Replace with the meeting password if applicable
+                        meeting_id = "6113963729"  # Replace with actual meeting ID
+                        password = "769575"  # Replace with the meeting password if applicable
                         zoom_link = f"https://zoom.us/j/{meeting_id}?pwd={password}"
 
                         interview_subject = f"Interview Scheduled for {role} Role"
@@ -539,11 +538,11 @@ def main():
                         )
 
                     # Show Calendly scheduling link here
-                    st.markdown(f"[Self-schedule Interview](https://calendly.com/anishapansare1504)")
+                    st.markdown(f"[Self-schedule Interview](https://calendly.com/maheshwaripatil1394/airecruit)")
 
                     # Confirm interview scheduling in the system
                     st.success("Interview scheduling link has been shared with you!")
                     update_metrics(role, is_selected)
 
 if __name__ == "__main__":
-    main() 
+    main()
