@@ -447,7 +447,7 @@ def generate_assessment_url(role):
         return "https://coding-assessment-platform.com"
 
 def main():
-    st.title("AI Recruitment System")
+    st.title("VisionHire Recruitment System")
     st.markdown("Please configure the following in the sidebar: Email Sender, Email Password, Company Name")
     
     initialize_metrics()
