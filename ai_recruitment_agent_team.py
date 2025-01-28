@@ -329,47 +329,107 @@ def download_button_with_icon(pdf_file):
     st.write("After downloading, please open the 'resume.pdf' file to review your resume.")
     
 def initialize_metrics():
+    """Initialize metrics in session state."""
     if 'metrics' not in st.session_state:
         st.session_state.metrics = {
             'total_resumes_uploaded': 0,
             'selected_candidates': 0,
             'interviews_scheduled': 0,
-            'applications_by_role': {role: 0 for role in ROLE_REQUIREMENTS}
+            'applications_by_role': {role: 0 for role in ROLE_REQUIREMENTS.keys()}
         }
+        
+        # Initialize selected and interviewed counts for each role
+        for role in ROLE_REQUIREMENTS.keys():
+            st.session_state.metrics[f"{role}_selected"] = 0
+            st.session_state.metrics[f"{role}_interviewed"] = 0
+
+# Initialize a list to store scheduled interviews
+scheduled_interviews = []
+
+def schedule_interview(candidate_email, role, selected_slot):
+    """Schedule an interview and store the details."""
+    scheduled_interviews.append({
+        "Email": candidate_email,
+        "Role": role,
+        "Date": selected_slot.date(),
+        "Time": selected_slot.time()
+    })
+
+def display_scheduled_interviews():
+    """Display the scheduled interviews in a table."""
+    if scheduled_interviews:
+        st.subheader("Scheduled Interviews")
+        st.table(scheduled_interviews)
+    else:
+        st.write("No interviews scheduled yet.")
 
 def update_metrics(role, is_selected):
+    """Update metrics based on the role and selection status."""
+    if 'metrics' not in st.session_state:
+        logger.error("Metrics not initialized in session state.")
+        return
+
+    # Increment total resumes uploaded
     st.session_state.metrics['total_resumes_uploaded'] += 1
     st.session_state.metrics['applications_by_role'][role] += 1
+
+    # Check if the role-specific keys exist, if not initialize them
+    if f"{role}_selected" not in st.session_state.metrics:
+        st.session_state.metrics[f"{role}_selected"] = 0
+    if f"{role}_interviewed" not in st.session_state.metrics:
+        st.session_state.metrics[f"{role}_interviewed"] = 0
+
     if is_selected:
         st.session_state.metrics['selected_candidates'] += 1
+        st.session_state.metrics[f"{role}_selected"] += 1  # Increment selected for this role
         st.session_state.metrics['interviews_scheduled'] += 1
+        st.session_state.metrics[f"{role}_interviewed"] += 1  # Increment interviewed for this role
 
 def show_analytics():
     st.header("Recruitment Analytics Dashboard")
     
-    # Fetch metrics from session state
+    # Check if metrics exist in session_state
+    if "metrics" not in st.session_state or not st.session_state.metrics:
+        st.error("Metrics data is not available.")
+        return
+
+    # Fetch metrics
     metrics = st.session_state.metrics
     
     # Display key metrics
     st.metric(label="Total Resumes Uploaded", value=metrics['total_resumes_uploaded'])
-    st.metric(label="Total Selected Candidates", value=metrics['selected_candidates'])
-    st.metric(label="Total Interviews Scheduled", value=metrics['interviews_scheduled'])
     
-    # Display role-wise applications
+    # Prepare data for role-wise applications
     role_counts = pd.DataFrame({
         'Role': list(metrics['applications_by_role'].keys()),
-        'Applications': list(metrics['applications_by_role'].values())
+        'Applications': list(metrics['applications_by_role'].values()),
+        'Selected Candidates': [metrics.get(f"{role}_selected", 0) for role in ROLE_REQUIREMENTS],
+        'Interviews Scheduled': [metrics.get(f"{role}_interviewed", 0) for role in ROLE_REQUIREMENTS]
     })
     
     st.subheader("Applications by Role")
-    st.dataframe(role_counts)  # Display the role_counts DataFrame as a table
+    st.dataframe(role_counts)  # Display as table
 
-    st.subheader("Applications by Role")
-    fig = px.bar(role_counts, x='Role', y='Applications', title='Applications per Role')
+    # Plot graph
+    fig = px.bar(
+        role_counts, 
+        x='Role', 
+        y='Applications', 
+        title='Applications per Role', 
+        color='Role', 
+        color_discrete_sequence=px.colors.qualitative.Bold
+    )
     st.plotly_chart(fig)
+
+    # Calculate selection rate
     if metrics['total_resumes_uploaded'] > 0:
         selection_rate = (metrics['selected_candidates'] / metrics['total_resumes_uploaded']) * 100
         st.metric(label="Selection Rate (%)", value=f"{selection_rate:.2f}%")
+    else:
+        st.warning("No resumes uploaded yet.")
+
+    # Display scheduled interviews
+    display_scheduled_interviews()
 
 def available_time_slots(selected_date):
     """Return a list of available interview slots for the selected date."""
@@ -440,14 +500,14 @@ def generate_assessment_url(role):
     elif role == "full_stack_engineer":
         return "https://docs.google.com/forms/d/e/1FAIpQLSdz6e0rqTngQIlUJXDKSeUtwmCj7ifIkdGcEHb7rM5YkReLWg/viewform?usp=dialog"
     elif role == "frontend_engineer":
-        return "https://docs.google.com/forms/d/e/1FAIpQLScIMEtmyc6HquDLB7ir0VQWEFOhY5qwf9sn YiUoBJwG1x7D_w/viewform?usp=dialog"
+        return "https://docs.google.com/forms/d/e/1FAIpQLScIMEtmyc6HquDLB7ir0VQWEFOhY5qwf9snYiUoBJwG1x7D_w/viewform?usp=dialog"
     elif role == "backend_engineer":
         return "https://docs.google.com/forms/d/e/1FAIpQLScIMEtmyc6HquDLB7ir0VQWEFOhY5qwf9snYiUoBJwG1x7D_w/viewform?usp=dialog"
     else:
         return "https://coding-assessment-platform.com"
 
 def main():
-    st.title("VisionHire Recruitment System")
+    st.title("AI Recruitment System")
     st.markdown("Please configure the following in the sidebar: Email Sender, Email Password, Company Name")
     
     initialize_metrics()
@@ -578,6 +638,10 @@ def main():
                         if meeting_link:
                             email_status += send_interview_email(candidate_email, role, selected_slot, config["company_name"], config["sender_email"], config["email_app_password"], meeting_link) + "\n"
                             st.success("Interview scheduling email has been sent to the candidate!")
+                            
+                            # Schedule the interview
+                            schedule_interview(candidate_email, role, selected_slot)
+                            
                         else:
                             st.error("Failed to schedule Zoom meeting. Please check your Zoom credentials.")
                             
